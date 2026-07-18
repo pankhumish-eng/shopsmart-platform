@@ -3,8 +3,17 @@ from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.user import User
-from app.schemas.user import UserRegister, UserResponse
-from app.utils.security import hash_password
+from app.schemas.user import (
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserResponse,
+)
+from app.utils.security import (
+    create_access_token,
+    hash_password,
+    verify_password,
+)
 
 
 router = APIRouter(
@@ -24,7 +33,7 @@ def register_user(
 ):
     existing_user = (
         database.query(User)
-        .filter(User.email == user_data.email)
+        .filter(User.email == user_data.email.lower())
         .first()
     )
 
@@ -45,3 +54,47 @@ def register_user(
     database.refresh(new_user)
 
     return new_user
+
+
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+)
+def login_user(
+    login_data: UserLogin,
+    database: Session = Depends(get_db),
+):
+    user = (
+        database.query(User)
+        .filter(User.email == login_data.email.lower())
+        .first()
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+        )
+
+    password_is_correct = verify_password(
+        login_data.password,
+        user.password,
+    )
+
+    if not password_is_correct:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+        )
+
+    access_token = create_access_token(
+        {
+            "sub": str(user.id),
+            "email": user.email,
+        }
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
